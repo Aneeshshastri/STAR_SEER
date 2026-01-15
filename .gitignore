@@ -1,6 +1,7 @@
 # Data files
 *.h5
 *.hdf5
+*.tf_env
 
 # Python
 __pycache__/
