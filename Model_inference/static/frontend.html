@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StellarNet Inference</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <style>
+        /* Custom Scrollbar for a cleaner look */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #1e293b; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+    </style>
+</head>
+<body class="bg-[#0b1121] text-gray-200 font-sans h-screen flex flex-col overflow-hidden">
+
+    <header class="p-4 border-b border-gray-800 flex justify-between items-center bg-[#0f172a]">
+        <div>
+            <h1 class="text-xl font-bold text-cyan-400 tracking-wider">STELLAR<span class="text-white">NET</span></h1>
+            <p class="text-xs text-gray-500">Neural Spectral Synthesis</p>
+        </div>
+        <div id="status-indicator" class="text-xs font-mono text-gray-500">System Ready</div>
+    </header>
+
+    <div class="flex flex-1 overflow-hidden">
+        
+        <aside class="w-80 bg-[#0f172a] border-r border-gray-800 flex flex-col p-4 overflow-y-auto">
+            <p class="text-xs text-gray-400 mb-4 bg-gray-800 p-2 rounded border border-gray-700">
+                <span class="text-cyan-400 font-bold">Tip:</span> Leave fields blank to use the dataset mean (average star).
+            </p>
+
+            <form id="controlPanel" class="space-y-6">
+                <div>
+                    <h3 class="text-sm font-semibold text-cyan-500 uppercase tracking-widest mb-3 border-b border-gray-800 pb-1">Core Physics</h3>
+                    <div class="space-y-3" id="group-core"></div>
+                </div>
+
+                <div>
+                    <h3 class="text-sm font-semibold text-cyan-500 uppercase tracking-widest mb-3 border-b border-gray-800 pb-1">CNO Elements</h3>
+                    <div class="space-y-3" id="group-cno"></div>
+                </div>
+
+                <div>
+                    <h3 class="text-sm font-semibold text-cyan-500 uppercase tracking-widest mb-3 border-b border-gray-800 pb-1">Metals</h3>
+                    <div class="space-y-3" id="group-metals"></div>
+                </div>
+            </form>
+            
+            <div class="mt-8 mb-4">
+                <button onclick="synthesize()" 
+                    class="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-bold py-3 px-4 rounded shadow-[0_0_15px_rgba(8,145,178,0.5)] transition-all duration-200 transform hover:scale-[1.02]">
+                    GENERATE SPECTRUM
+                </button>
+            </div>
+        </aside>
+
+        <main class="flex-1 relative bg-black">
+            <div id="plotArea" class="w-full h-full"></div>
+            <div id="loader" class="absolute inset-0 bg-black/80 flex items-center justify-center hidden z-50">
+                <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-cyan-500"></div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // Define groups specifically to match your label list
+        const LABELS = {
+            core: ['TEFF', 'LOGG', 'FE_H', 'VMICRO', 'VMACRO', 'VSINI'],
+            cno: ['C_FE', 'N_FE', 'O_FE'],
+            metals: ['MG_FE', 'SI_FE', 'CA_FE', 'TI_FE', 'S_FE', 'AL_FE', 'MN_FE', 'NI_FE', 'CR_FE', 'K_FE', 'NA_FE', 'V_FE', 'CO_FE']
+        };
+
+        // Helper to dynamically create input fields
+        function createInput(label, parentId) {
+            const container = document.getElementById(parentId);
+            const div = document.createElement('div');
+            div.className = "flex flex-col";
+            div.innerHTML = `
+                <label class="text-[10px] text-gray-400 font-mono mb-1">${label}</label>
+                <input type="number" step="any" id="in_${label}" placeholder="Auto (Mean)"
+                    class="bg-[#1e293b] border border-gray-700 text-cyan-300 text-sm rounded p-2 focus:border-cyan-500 focus:outline-none focus:ring-1 focus:ring-cyan-500 placeholder-gray-600">
+            `;
+            container.appendChild(div);
+        }
+
+        // Initialize UI inputs
+        LABELS.core.forEach(l => createInput(l, 'group-core'));
+        LABELS.cno.forEach(l => createInput(l, 'group-cno'));
+        LABELS.metals.forEach(l => createInput(l, 'group-metals'));
+
+        async function synthesize() {
+            const status = document.getElementById('status-indicator');
+            const loader = document.getElementById('loader');
+            
+            status.innerText = "Computing...";
+            status.className = "text-xs font-mono text-cyan-400 animate-pulse";
+            loader.classList.remove('hidden');
+
+            // Gather inputs
+            const payload = {};
+            [...LABELS.core, ...LABELS.cno, ...LABELS.metals].forEach(label => {
+                const val = document.getElementById(`in_${label}`).value;
+                // Only send if not empty
+                if (val !== "") payload[label] = parseFloat(val);
+                else payload[label] = null; 
+            });
+
+            try {
+                const res = await fetch('/predict', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ params: payload })
+                });
+
+                if(!res.ok) throw new Error("Server Error");
+                const data = await res.json();
+
+                renderPlot(data.wavelengths, data.flux);
+                
+                status.innerText = "Rendering Complete";
+                status.className = "text-xs font-mono text-green-500";
+            } catch (err) {
+                console.error(err);
+                status.innerText = "Error";
+                status.className = "text-xs font-mono text-red-500";
+                alert("Failed to generate spectrum. Check console.");
+            } finally {
+                loader.classList.add('hidden');
+            }
+        }
+
+        function renderPlot(xData, yData) {
+            const trace = {
+                x: xData,
+                y: yData,
+                mode: 'lines',
+                line: {
+                    color: '#22d3ee', // Cyan
+                    width: 1.5
+                },
+                fill: 'tozeroy', // optional: adds a faint glow under the line
+                fillcolor: 'rgba(34, 211, 238, 0.1)'
+            };
+
+            const layout = {
+                paper_bgcolor: '#000000',
+                plot_bgcolor: '#000000',
+                margin: { t: 40, r: 40, l: 60, b: 60 },
+                xaxis: {
+                    title: 'Wavelength (Å)',
+                    titlefont: {color: '#94a3b8'},
+                    tickfont: {color: '#64748b'},
+                    gridcolor: '#1e293b',
+                    zerolinecolor: '#334155'
+                },
+                yaxis: {
+                    title: 'Normalized Flux',
+                    titlefont: {color: '#94a3b8'},
+                    tickfont: {color: '#64748b'},
+                    gridcolor: '#1e293b',
+                    zerolinecolor: '#334155'
+                },
+                title: {
+                    text: 'Synthetic Spectra Output',
+                    font: { color: '#e2e8f0' }
+                }
+            };
+
+            const config = { responsive: true, displayModeBar: true };
+            Plotly.newPlot('plotArea', [trace], layout, config);
+        }
+
+        // Initial empty plot to create the grid before data arrives
+        renderPlot([], []);
+    </script>
+</body>
+</html>
