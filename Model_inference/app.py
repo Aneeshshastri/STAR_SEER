@@ -19,7 +19,7 @@ SELECTED_LABELS = [
 
 
 WAVELENGTH_START = 1514
-WAVELENGTH_END =    # Dispersion (Angstroms per pixel)
+WAVELENGTH_END = 1694   # Dispersion (Angstroms per pixel)
 N_PIXELS = 8575           # Total output pixels from model
 
 # --- 2. Load Resources ---
