@@ -17,11 +17,10 @@ SELECTED_LABELS = [
     'NA_FE', 'V_FE', 'CO_FE'
 ]
 
-# Graph X-Axis Settings (Adjust these to match your training data!)
-# Example: APOGEE usually ranges ~15,000 to ~17,000 Angstroms
-WAVELENGTH_START = 15000.0 
-WAVELENGTH_STEP = 0.5      # Dispersion (Angstroms per pixel)
-N_PIXELS = 7500            # Total output pixels from model
+
+WAVELENGTH_START = 1514
+WAVELENGTH_END =    # Dispersion (Angstroms per pixel)
+N_PIXELS = 8575           # Total output pixels from model
 
 # --- 2. Load Resources ---
 
@@ -77,7 +76,7 @@ class StellarParams(BaseModel):
 
 def generate_wavelengths():
     """Generates the x-axis for the spectrum."""
-    return [WAVELENGTH_START + i * WAVELENGTH_STEP for i in range(N_PIXELS)]
+    return np.logspace(np.log10(WAVELENGTH_START), np.log10(WAVELENGTH_END), N_PIXELS)
 
 @app.post("/predict")
 async def predict_spectrum(user_input: StellarParams):
