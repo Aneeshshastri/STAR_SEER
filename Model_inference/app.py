@@ -6,7 +6,76 @@ from typing import Dict, Optional
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from CONFIGS import Config
+from tensorflow.keras.saving import register_keras_serializable
+from tensorflow.keras import layers, models, Input, callbacks, regularizers
 
+@register_keras_serializable()
+def scaled_sigmoid(x):
+    return 1.3 * tf.nn.sigmoid(x)-0.15
+
+@register_keras_serializable()
+def sobolev_loss(y_true, y_pred):
+    real_flux = y_true[:, :, 0:1]
+    ivar = y_true[:, :, 1:2]
+    valid_mask = tf.cast(real_flux > Config.BADPIX_CUTOFF, tf.float32)    
+    safe_flux = tf.where(valid_mask == 1.0, real_flux, y_pred)
+    ivar_safe = tf.clip_by_value(ivar / 1000.0, 0.0, 1.0)# scale and clip
+    weight=tf.where(((safe_flux<0.9) & (ivar>0)),tf.maximum(ivar_safe,tf.cast(1.0,dtype=tf.float32)),ivar_safe)
+    #chi2
+    wmse_term = tf.square(safe_flux - y_pred) * weight * valid_mask
+    # calculate "gradients" (difference between adjacent pixels)
+    true_grad = safe_flux[:, 1:, :] - safe_flux[:, :-1, :]
+    pred_grad = y_pred[:, 1:, :] - y_pred[:, :-1, :]
+    
+    # Calculate Squared Error of gradients (sobolev loss term)
+    grad_sq_diff = tf.square(true_grad - pred_grad)
+    grad_mask = valid_mask[:, 1:, :] * valid_mask[:, :-1, :]
+    grad_trust = (weight[:, 1:, :] * weight[:, :-1, :])
+    # Apply mask to gradient loss
+    grad_loss = grad_sq_diff * grad_mask * grad_trust
+    
+    #pad last pixel
+    grad_loss = tf.pad(grad_loss, [[0,0], [0,1], [0,0]])
+
+@tf.keras.saving.register_keras_serializable(package="Custom")
+def spectral_focus_loss(y_true, y_pred):
+    """
+    A loss function designed specifically for the Refiner Stage.
+    It aggressively ignores continuum noise and focuses on absorption lines.
+    """
+    real_flux = y_true[:, :, 0:1]
+    ivar = y_true[:, :, 1:2]
+    
+    # 1. Mask Poison Data (-9999)
+    valid_mask = tf.cast(real_flux >  Config.BADPIX_CUTOFF, tf.float32)
+    safe_flux = tf.where(valid_mask == 1.0, real_flux, y_pred)
+    
+    # 2. Scale Ivar
+    ivar_safe = tf.clip_by_value(ivar / 1000.0, 0.0, 1.0)
+    weight=tf.where(((safe_flux<0.9) & (ivar>0)),tf.maximum(ivar_safe,tf.cast(1.0,dtype=tf.float32)),ivar_safe)
+    # 3. DEFINE ZONES
+    # Line Zone: Where physics happens (Flux < 0.9)
+    # Continuum Zone: Where noise happens (Flux >= 0.9)
+    is_line = tf.cast(safe_flux < 0.9, tf.float32)
+    is_continuum = 1.0 - is_line
+    
+    # 4. ASSIGN WEIGHTS
+    # Lines: Weight 15 (High Priority)
+    # Continuum: Weight 1 (Low Priority - prevent drift, but ignore noise)
+    zone_weight = (is_line *15.0) + (is_continuum * 1.0)
+    
+    # 5. Combined Weight
+    # We multiply by ivar to ensure we don't fit dead pixels in the line region
+    final_weight = zone_weight * weight * valid_mask
+    
+    # 6. Calculate MSE
+    squared_diff = tf.square(safe_flux - y_pred)
+    weighted_loss = squared_diff * final_weight
+    
+    # 7. Safety
+    loss = tf.where(tf.math.is_finite(weighted_loss), weighted_loss, tf.zeros_like(weighted_loss))
+    
+    return tf.reduce_mean(loss)
 
 print("⏳ Loading Model & Stats...")
 
@@ -89,9 +158,13 @@ async def predict_spectrum(user_input: StellarParams):
     # Formula: (x - mean) / std
     raw_array = np.array(input_vector, dtype=np.float32)
     normalized_array = (raw_array - MEANS_ARRAY) / (STDS_ARRAY + 1e-7)
-    
-    # Reshape for model (1, n_features)
     model_input = normalized_array.reshape(1, -1)
+    teff_idx = Config.SELECTED_LABELS.index('TEFF')
+    teff_vals = model_input[:, teff_idx]     
+    inv_teff = 5040.0 / (teff_vals + 1e-6)
+    inv_teff = inv_teff.reshape(-1, 1)
+    model_input = np.hstack([model_input, inv_teff])
+
 
     # --- Step C: Inference ---
     if model:
