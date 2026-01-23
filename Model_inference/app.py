@@ -106,7 +106,7 @@ except Exception as e:
 
 # Load Model
 try:
-    model = tf.keras.models.load_model("model/stellar_generator.keras")
+    model = tf.keras.models.load_model("model/final_model.keras")
     print("✅ Model loaded successfully.")
 except Exception as e:
     print(f"❌ Model load failed: {e}")
@@ -157,13 +157,15 @@ async def predict_spectrum(user_input: StellarParams):
     # --- Step B: Normalization ---
     # Formula: (x - mean) / std
     raw_array = np.array(input_vector, dtype=np.float32)
-    normalized_array = (raw_array - MEANS_ARRAY) / (STDS_ARRAY + 1e-7)
-    model_input = normalized_array.reshape(1, -1)
+    raw_array = raw_array.reshape(1, -1)
     teff_idx = Config.SELECTED_LABELS.index('TEFF')
-    teff_vals = model_input[:, teff_idx]     
+    teff_vals = raw_array[:, teff_idx]     
     inv_teff = 5040.0 / (teff_vals + 1e-6)
     inv_teff = inv_teff.reshape(-1, 1)
-    model_input = np.hstack([model_input, inv_teff])
+    raw_array = np.hstack([raw_array, inv_teff])
+    normalized_array = (raw_array - MEANS_ARRAY) / (STDS_ARRAY + 1e-7)
+    model_input = normalized_array.reshape(1, -1)
+   
 
 
     # --- Step C: Inference ---
