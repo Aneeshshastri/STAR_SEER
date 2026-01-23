@@ -7,125 +7,163 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
     <style>
-        /* Custom Scrollbar for a cleaner look */
-        ::-webkit-scrollbar { width: 8px; }
-        ::-webkit-scrollbar-track { background: #1e293b; }
-        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
-        ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #475569; }
+        
+        /* Input focus effects */
+        input:focus { box-shadow: 0 0 10px rgba(34, 211, 238, 0.2); }
     </style>
 </head>
 <body class="bg-[#0b1121] text-gray-200 font-sans h-screen flex flex-col overflow-hidden">
 
-    <header class="p-4 border-b border-gray-800 flex justify-between items-center bg-[#0f172a]">
-        <div>
-            <h1 class="text-xl font-bold text-cyan-400 tracking-wider">STELLAR<span class="text-white">NET</span></h1>
-            <p class="text-xs text-gray-500">Neural Spectral Synthesis</p>
+    <header class="h-14 border-b border-gray-800 flex justify-between items-center px-6 bg-[#0f172a] shrink-0">
+        <div class="flex items-center gap-3">
+            <div class="w-3 h-3 rounded-full bg-cyan-500 shadow-[0_0_10px_#06b6d4]"></div>
+            <h1 class="text-lg font-bold tracking-widest text-gray-100">
+                STAR<span class="text-cyan-400">SEER</span>
+            </h1>
         </div>
-        <div id="status-indicator" class="text-xs font-mono text-gray-500">System Ready</div>
+        <div id="status-indicator" class="text-xs font-mono text-cyan-500/50 uppercase tracking-widest">
+            System Online
+        </div>
     </header>
 
     <div class="flex flex-1 overflow-hidden">
         
-        <aside class="w-80 bg-[#0f172a] border-r border-gray-800 flex flex-col p-4 overflow-y-auto">
-            <p class="text-xs text-gray-400 mb-4 bg-gray-800 p-2 rounded border border-gray-700">
-                <span class="text-cyan-400 font-bold">Tip:</span> Leave fields blank to use the dataset mean (average star).
-            </p>
-
-            <form id="controlPanel" class="space-y-6">
-                <div>
-                    <h3 class="text-sm font-semibold text-cyan-500 uppercase tracking-widest mb-3 border-b border-gray-800 pb-1">Core Physics</h3>
-                    <div class="space-y-3" id="group-core"></div>
+        <aside class="w-80 bg-[#0f172a]/50 border-r border-gray-800 flex flex-col overflow-y-auto backdrop-blur-sm">
+            <div class="p-4 space-y-6">
+                
+                <div class="text-[10px] text-gray-400 bg-cyan-900/10 border border-cyan-900/30 p-3 rounded">
+                    <strong class="text-cyan-400 block mb-1">AUTO-FILL ACTIVE</strong>
+                    Empty fields will be automatically filled with the dataset mean (Average Star).
                 </div>
 
-                <div>
-                    <h3 class="text-sm font-semibold text-cyan-500 uppercase tracking-widest mb-3 border-b border-gray-800 pb-1">CNO Elements</h3>
-                    <div class="space-y-3" id="group-cno"></div>
-                </div>
-
-                <div>
-                    <h3 class="text-sm font-semibold text-cyan-500 uppercase tracking-widest mb-3 border-b border-gray-800 pb-1">Metals</h3>
-                    <div class="space-y-3" id="group-metals"></div>
-                </div>
-            </form>
+                <form id="controlPanel" class="space-y-6">
+                    <div id="group-core"></div>
+                    <div id="group-cno"></div>
+                    <div id="group-metals"></div>
+                </form>
+            </div>
             
-            <div class="mt-8 mb-4">
+            <div class="sticky bottom-0 p-4 bg-[#0f172a] border-t border-gray-800">
                 <button onclick="synthesize()" 
-                    class="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-bold py-3 px-4 rounded shadow-[0_0_15px_rgba(8,145,178,0.5)] transition-all duration-200 transform hover:scale-[1.02]">
-                    GENERATE SPECTRUM
+                    class="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-bold py-3 px-4 rounded shadow-[0_0_20px_rgba(8,145,178,0.4)] transition-all duration-200 hover:scale-[1.02] active:scale-95">
+                    SYNTHESIZE SPECTRUM
                 </button>
             </div>
         </aside>
 
-        <main class="flex-1 relative bg-black">
+        <main class="flex-1 relative bg-black flex flex-col">
             <div id="plotArea" class="w-full h-full"></div>
-            <div id="loader" class="absolute inset-0 bg-black/80 flex items-center justify-center hidden z-50">
-                <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-cyan-500"></div>
+            
+            <div id="loader" class="absolute inset-0 bg-black/80 flex flex-col items-center justify-center hidden z-50 backdrop-blur-sm">
+                <div class="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-cyan-500 mb-4"></div>
+                <div class="text-cyan-400 font-mono text-sm tracking-widest animate-pulse">COMPUTING FLUX...</div>
             </div>
         </main>
     </div>
 
     <script>
-        // Define groups specifically to match your label list
+        // --- CONFIGURATION ---
+        // EXACTLY matches your Config.SELECTED_LABELS order
         const LABELS = {
             core: ['TEFF', 'LOGG', 'FE_H', 'VMICRO', 'VMACRO', 'VSINI'],
             cno: ['C_FE', 'N_FE', 'O_FE'],
-            metals: ['MG_FE', 'SI_FE', 'CA_FE', 'TI_FE', 'S_FE', 'AL_FE', 'MN_FE', 'NI_FE', 'CR_FE', 'K_FE', 'NA_FE', 'V_FE', 'CO_FE']
+            metals: [
+                'MG_FE', 'SI_FE', 'CA_FE', 'TI_FE', 'S_FE', 
+                'AL_FE', 'MN_FE', 'NI_FE', 'CR_FE', 'K_FE', 
+                'NA_FE', 'V_FE', 'CO_FE'
+            ]
         };
 
-        // Helper to dynamically create input fields
-        function createInput(label, parentId) {
+        // --- UI GENERATION ---
+        function createGroupHeader(title, parentId) {
             const container = document.getElementById(parentId);
-            const div = document.createElement('div');
-            div.className = "flex flex-col";
-            div.innerHTML = `
-                <label class="text-[10px] text-gray-400 font-mono mb-1">${label}</label>
-                <input type="number" step="any" id="in_${label}" placeholder="Auto (Mean)"
-                    class="bg-[#1e293b] border border-gray-700 text-cyan-300 text-sm rounded p-2 focus:border-cyan-500 focus:outline-none focus:ring-1 focus:ring-cyan-500 placeholder-gray-600">
-            `;
-            container.appendChild(div);
+            const header = document.createElement('h3');
+            header.className = "text-xs font-bold text-gray-500 uppercase tracking-widest mb-3 border-b border-gray-800 pb-1";
+            header.innerText = title;
+            container.appendChild(header);
+            
+            const grid = document.createElement('div');
+            grid.className = "grid grid-cols-2 gap-3"; // 2 Column Layout
+            grid.id = parentId + "-grid";
+            container.appendChild(grid);
+            return grid;
         }
 
-        // Initialize UI inputs
-        LABELS.core.forEach(l => createInput(l, 'group-core'));
-        LABELS.cno.forEach(l => createInput(l, 'group-cno'));
-        LABELS.metals.forEach(l => createInput(l, 'group-metals'));
+        function createInput(label, parentGrid) {
+            const div = document.createElement('div');
+            div.className = "flex flex-col group";
+            div.innerHTML = `
+                <label class="text-[10px] text-gray-400 font-mono mb-1 group-hover:text-cyan-400 transition-colors">${label}</label>
+                <input type="number" step="any" id="in_${label}" placeholder="-"
+                    class="bg-[#1e293b] border border-gray-700 text-cyan-300 text-sm rounded px-2 py-1.5 focus:border-cyan-500 focus:outline-none transition-all placeholder-gray-600">
+            `;
+            parentGrid.appendChild(div);
+        }
 
+        // Generate the Sidebar
+        const coreGrid = createGroupHeader("Core Parameters", "group-core");
+        LABELS.core.forEach(l => createInput(l, coreGrid));
+
+        const cnoGrid = createGroupHeader("CNO Elements", "group-cno");
+        LABELS.cno.forEach(l => createInput(l, cnoGrid));
+
+        const metalsGrid = createGroupHeader("Metals", "group-metals");
+        LABELS.metals.forEach(l => createInput(l, metalsGrid));
+
+
+        // --- LOGIC ---
         async function synthesize() {
             const status = document.getElementById('status-indicator');
             const loader = document.getElementById('loader');
             
-            status.innerText = "Computing...";
-            status.className = "text-xs font-mono text-cyan-400 animate-pulse";
+            status.innerText = "PROCESSING";
+            status.className = "text-xs font-mono text-cyan-400 animate-pulse uppercase tracking-widest";
             loader.classList.remove('hidden');
 
-            // Gather inputs
+            // 1. Gather all inputs
             const payload = {};
             [...LABELS.core, ...LABELS.cno, ...LABELS.metals].forEach(label => {
-                const val = document.getElementById(`in_${label}`).value;
-                // Only send if not empty
-                if (val !== "") payload[label] = parseFloat(val);
-                else payload[label] = null; 
+                const el = document.getElementById(`in_${label}`);
+                const val = el.value;
+                // Send explicit null if empty so Python handles defaults
+                payload[label] = val === "" ? null : parseFloat(val);
             });
 
             try {
+                // 2. Send to Backend
                 const res = await fetch('/predict', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ params: payload })
                 });
 
-                if(!res.ok) throw new Error("Server Error");
+                if(!res.ok) throw new Error("API Error");
                 const data = await res.json();
 
+                // 3. Render
                 renderPlot(data.wavelengths, data.flux);
                 
-                status.innerText = "Rendering Complete";
-                status.className = "text-xs font-mono text-green-500";
+                // 4. Fill in the placeholders with the actual values used (optional UX improvement)
+                for (const [key, val] of Object.entries(data.used_values)) {
+                    const input = document.getElementById(`in_${key}`);
+                    if (input && input.value === "") {
+                        input.placeholder = val.toFixed(2); // Show what default was used
+                    }
+                }
+
+                status.innerText = "RENDER COMPLETE";
+                status.className = "text-xs font-mono text-green-500 uppercase tracking-widest";
+
             } catch (err) {
                 console.error(err);
-                status.innerText = "Error";
-                status.className = "text-xs font-mono text-red-500";
-                alert("Failed to generate spectrum. Check console.");
+                status.innerText = "SYSTEM ERROR";
+                status.className = "text-xs font-mono text-red-500 uppercase tracking-widest";
+                alert("Failed to generate spectrum. Check console for details.");
             } finally {
                 loader.classList.add('hidden');
             }
@@ -137,42 +175,56 @@
                 y: yData,
                 mode: 'lines',
                 line: {
-                    color: '#22d3ee', // Cyan
-                    width: 1.5
+                    color: '#22d3ee', // Cyan-400
+                    width: 1.5,
+                    shape: 'linear'   // Ensure sharp transitions for spectra
                 },
-                fill: 'tozeroy', // optional: adds a faint glow under the line
-                fillcolor: 'rgba(34, 211, 238, 0.1)'
+                name: 'Flux',
+                hoverinfo: 'x+y'
             };
 
             const layout = {
                 paper_bgcolor: '#000000',
                 plot_bgcolor: '#000000',
-                margin: { t: 40, r: 40, l: 60, b: 60 },
+                margin: { t: 40, r: 20, l: 60, b: 40 },
+                
+                // AXIS AUTO-SCALING: 
+                // We do NOT set 'range' here. Plotly will calculate it based on the data.
                 xaxis: {
                     title: 'Wavelength (Å)',
-                    titlefont: {color: '#94a3b8'},
-                    tickfont: {color: '#64748b'},
+                    titlefont: {color: '#94a3b8', size: 12},
+                    tickfont: {color: '#64748b', size: 10},
                     gridcolor: '#1e293b',
-                    zerolinecolor: '#334155'
+                    zerolinecolor: '#334155',
+                    showspikes: true,
+                    spikethickness: 1,
+                    spikecolor: '#475569',
+                    spikemode: 'across'
                 },
                 yaxis: {
                     title: 'Normalized Flux',
-                    titlefont: {color: '#94a3b8'},
-                    tickfont: {color: '#64748b'},
+                    titlefont: {color: '#94a3b8', size: 12},
+                    tickfont: {color: '#64748b', size: 10},
                     gridcolor: '#1e293b',
-                    zerolinecolor: '#334155'
+                    zerolinecolor: '#334155',
+                    // Optional: Spectra usually normalized to 1.0, so we can center view
+                    autorange: true 
                 },
-                title: {
-                    text: 'Synthetic Spectra Output',
-                    font: { color: '#e2e8f0' }
-                }
+                hovermode: 'closest',
+                showlegend: false
             };
 
-            const config = { responsive: true, displayModeBar: true };
+            const config = { 
+                responsive: true, 
+                displayModeBar: true,
+                displaylogo: false,
+                modeBarButtonsToRemove: ['lasso2d', 'select2d']
+            };
+
             Plotly.newPlot('plotArea', [trace], layout, config);
         }
 
-        // Initial empty plot to create the grid before data arrives
+        // Initialize empty grid on load
         renderPlot([], []);
     </script>
 </body>

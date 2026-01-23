@@ -81,7 +81,7 @@ print("⏳ Loading Model & Stats...")
 
 # Load Stats
 try:
-    with np.load("model/dataset_stats.npz") as data:
+    with np.load("C:/Users/Aneesh Shastri/OneDrive/Documents/GitHub/STAR_SEER/Model_inference/model/dataset_stats.npz") as data:
         # Ensure float32 for TensorFlow compatibility
         MEANS_ARRAY = data['mean'].astype(np.float32)
         STDS_ARRAY = data['std'].astype(np.float32)
@@ -106,7 +106,7 @@ except Exception as e:
 
 # Load Model
 try:
-    model = tf.keras.models.load_model("model/final_model.keras")
+    model = tf.keras.models.load_model("C:/Users/Aneesh Shastri/OneDrive/Documents/GitHub/STAR_SEER/Model_inference/model/final_model.keras")
     print("✅ Model loaded successfully.")
 except Exception as e:
     print(f"❌ Model load failed: {e}")
@@ -163,6 +163,47 @@ async def predict_spectrum(user_input: StellarParams):
     inv_teff = 5040.0 / (teff_vals + 1e-6)
     inv_teff = inv_teff.reshape(-1, 1)
     raw_array = np.hstack([raw_array, inv_teff])
+    vmacro_idx = Config.SELECTED_LABELS.index('VMACRO')
+    vmacro_vals = raw_array[:, vmacro_idx]
+       
+    vsini_idx = Config.SELECTED_LABELS.index('VSINI')
+    vsini_vals = raw_array[:, vmacro_idx]
+        # Stack it onto the end of the array
+    quadrature=np.sqrt(np.square(vmacro_vals)+np.square(vsini_vals))
+    quadrature = quadrature.reshape(-1, 1)
+    raw_array = np.hstack([raw_array, quadrature])
+        
+   # except ValueError:
+   #     print("VMARCRO or VSINI not found in labels")
+    
+    try:
+  
+        C_idx = Config.SELECTED_LABELS.index('C_FE')
+        C_vals = raw_array[:, C_idx]
+       
+        O_idx = Config.SELECTED_LABELS.index('O_FE')
+        O_vals = raw_array[:, O_idx]
+        C_O_diff=C_vals-O_vals
+        C_O_diff=C_O_diff.reshape(-1,1)
+        raw_array = np.hstack([raw_array, C_O_diff])
+        
+    except ValueError:
+        print("C_FE or O_FE not found in labels")
+    
+    try:
+  
+        G_idx = Config.SELECTED_LABELS.index('LOGG')
+        G_vals = raw_array[:, G_idx]
+       
+        FE_idx = Config.SELECTED_LABELS.index('FE_H')
+        FE_vals = raw_array[:, FE_idx]
+        LOGPE=G_vals+0.5*FE_vals
+        LOGPE=LOGPE.reshape(-1,1)
+        raw_array = np.hstack([raw_array, LOGPE])
+        
+    except ValueError:
+        print("FE_H or LOGG not found in labels")
+   
     normalized_array = (raw_array - MEANS_ARRAY) / (STDS_ARRAY + 1e-7)
     model_input = normalized_array.reshape(1, -1)
    
