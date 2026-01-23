@@ -5,24 +5,8 @@ from pydantic import BaseModel
 from typing import Dict, Optional
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from CONFIGS import Config
 
-# --- 1. Configuration & Constants ---
-
-# Exact order required by your model
-SELECTED_LABELS = [
-    'TEFF', 'LOGG', 'FE_H', 'VMICRO', 'VMACRO', 'VSINI',
-    'C_FE', 'N_FE', 'O_FE',
-    'MG_FE', 'SI_FE', 'CA_FE', 'TI_FE', 'S_FE',
-    'AL_FE', 'MN_FE', 'NI_FE', 'CR_FE', 'K_FE',
-    'NA_FE', 'V_FE', 'CO_FE'
-]
-
-
-WAVELENGTH_START = 1514
-WAVELENGTH_END = 1694   # Dispersion (Angstroms per pixel)
-N_PIXELS = 8575           # Total output pixels from model
-
-# --- 2. Load Resources ---
 
 print("⏳ Loading Model & Stats...")
 
@@ -35,20 +19,20 @@ try:
         
     # Create a lookup dictionary for "Auto-Fill" functionality
     # Maps 'TEFF' -> 4500.0, 'LOGG' -> 2.5, etc.
-    DEFAULT_MEANS = {label: float(MEANS_ARRAY[i]) for i, label in enumerate(SELECTED_LABELS)}
+    DEFAULT_MEANS = {label: float(MEANS_ARRAY[i]) for i, label in enumerate(Config.SELECTED_LABELS)}
     
     print(f"✅ Stats loaded. Found {len(MEANS_ARRAY)} features.")
     
     # Sanity Check
-    if len(MEANS_ARRAY) != len(SELECTED_LABELS):
-        print(f"⚠️ WARNING: Stats file has {len(MEANS_ARRAY)} values, but SELECTED_LABELS has {len(SELECTED_LABELS)}.")
+    if len(MEANS_ARRAY) != len(Config.SELECTED_LABELS):
+        print(f"⚠️ WARNING: Stats file has {len(MEANS_ARRAY)} values, but Config.SELECTED_LABELS has {len(Config.SELECTED_LABELS)}.")
 
 except Exception as e:
     print(f"❌ Error loading stats: {e}")
     # Fallback for testing ONLY (prevents crash if file is missing)
-    MEANS_ARRAY = np.zeros(len(SELECTED_LABELS), dtype=np.float32)
-    STDS_ARRAY = np.ones(len(SELECTED_LABELS), dtype=np.float32)
-    DEFAULT_MEANS = {label: 0.0 for label in SELECTED_LABELS}
+    MEANS_ARRAY = np.zeros(len(Config.SELECTED_LABELS), dtype=np.float32)
+    STDS_ARRAY = np.ones(len(Config.SELECTED_LABELS), dtype=np.float32)
+    DEFAULT_MEANS = {label: 0.0 for label in Config.SELECTED_LABELS}
 
 
 # Load Model
@@ -76,7 +60,7 @@ class StellarParams(BaseModel):
 
 def generate_wavelengths():
     """Generates the x-axis for the spectrum."""
-    return np.logspace(np.log10(WAVELENGTH_START), np.log10(WAVELENGTH_END), N_PIXELS)
+    return np.logspace(np.log10(Config.WAVELENGTH_START), np.log10(Config.WAVELENGTH_END), Config.OUTPUT_LENGTH)
 
 @app.post("/predict")
 async def predict_spectrum(user_input: StellarParams):
@@ -91,7 +75,7 @@ async def predict_spectrum(user_input: StellarParams):
     # --- Step A: Vector Construction (Handle Missing Inputs) ---
     input_vector = []
     
-    for i, label in enumerate(SELECTED_LABELS):
+    for i, label in enumerate(Config.SELECTED_LABELS):
         # Check if user provided this specific label
         val = user_dict.get(label)
         
@@ -111,19 +95,19 @@ async def predict_spectrum(user_input: StellarParams):
 
     # --- Step C: Inference ---
     if model:
-        # Predict returns (1, n_pixels)
+        # Predict returns (1, Config.OUTPUT_LENGTH)
         prediction = model.predict(model_input, verbose=0)
         flux_output = prediction[0].tolist()
     else:
         # Mock output for testing UI without model
-        x = np.linspace(0, 50, N_PIXELS)
+        x = np.linspace(0, 50, Config.OUTPUT_LENGTH)
         flux_output = (np.sin(x) + raw_array[0]/5000).tolist() # Dummy math
 
     return {
-        "wavelengths": generate_wavelengths(),
+        "wavelengths": generate_wavelengths().tolist(),
         "flux": flux_output,
-        "used_values": dict(zip(SELECTED_LABELS, input_vector)) # Send back what values were actually used
+        "used_values": dict(zip(Config.SELECTED_LABELS, input_vector)) # Send back what values were actually used
     }
 
 # Mount static files (frontend)
-app.mount("/", StaticFiles(directory="static", html=True), name="static")
+app.mount("/", StaticFiles(directory="C:/Users/Aneesh Shastri/OneDrive/Documents/GitHub/STAR_SEER/Model_inference/static", html=True), name="static")
