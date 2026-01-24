@@ -3,229 +3,216 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>StellarNet Inference</title>
+    <title>StellarNet Lab</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
     <style>
-        /* Custom Scrollbar */
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: #0f172a; }
         ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: #475569; }
-        
-        /* Input focus effects */
-        input:focus { box-shadow: 0 0 10px rgba(34, 211, 238, 0.2); }
     </style>
 </head>
 <body class="bg-[#0b1121] text-gray-200 font-sans h-screen flex flex-col overflow-hidden">
 
     <header class="h-14 border-b border-gray-800 flex justify-between items-center px-6 bg-[#0f172a] shrink-0">
-        <div class="flex items-center gap-3">
-            <div class="w-3 h-3 rounded-full bg-cyan-500 shadow-[0_0_10px_#06b6d4]"></div>
-            <h1 class="text-lg font-bold tracking-widest text-gray-100">
-                STAR<span class="text-cyan-400">SEER</span>
-            </h1>
-        </div>
-        <div id="status-indicator" class="text-xs font-mono text-cyan-500/50 uppercase tracking-widest">
-            System Online
+        <h1 class="text-lg font-bold tracking-widest text-gray-100">STAR<span class="text-cyan-400">SEER</span></h1>
+        
+        <div class="flex items-center gap-4">
+            <button onclick="toggleDiff()" id="diffBtn" class="text-xs font-mono border border-gray-600 px-3 py-1 rounded text-gray-400 hover:text-white hover:border-white transition-all">
+                SET BASELINE (DIFF MODE)
+            </button>
+            
+            <div class="flex items-center gap-2">
+                <input type="checkbox" id="showLines" class="w-4 h-4 accent-cyan-500 cursor-pointer" checked onchange="replot()">
+                <label for="showLines" class="text-xs font-mono text-cyan-400 cursor-pointer select-none">LINES</label>
+            </div>
         </div>
     </header>
 
     <div class="flex flex-1 overflow-hidden">
-        
-        <aside class="w-80 bg-[#0f172a]/50 border-r border-gray-800 flex flex-col overflow-y-auto backdrop-blur-sm">
-            <div class="p-4 space-y-6">
-                
-                <div class="text-[10px] text-gray-400 bg-cyan-900/10 border border-cyan-900/30 p-3 rounded">
-                    <strong class="text-cyan-400 block mb-1">AUTO-FILL ACTIVE</strong>
-                    Empty fields will be automatically filled with the dataset mean (Average Star).
-                </div>
-
+        <aside class="w-72 bg-[#0f172a]/90 border-r border-gray-800 flex flex-col overflow-y-auto z-10">
+            <div class="p-4 space-y-4">
                 <form id="controlPanel" class="space-y-6">
                     <div id="group-core"></div>
                     <div id="group-cno"></div>
                     <div id="group-metals"></div>
                 </form>
             </div>
-            
             <div class="sticky bottom-0 p-4 bg-[#0f172a] border-t border-gray-800">
-                <button onclick="synthesize()" 
-                    class="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-bold py-3 px-4 rounded shadow-[0_0_20px_rgba(8,145,178,0.4)] transition-all duration-200 hover:scale-[1.02] active:scale-95">
-                    SYNTHESIZE SPECTRUM
+                <button onclick="synthesize()" class="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-bold py-3 rounded transition-all shadow-[0_0_15px_rgba(8,145,178,0.4)]">
+                    SYNTHESIZE / UPDATE
                 </button>
             </div>
         </aside>
 
-        <main class="flex-1 relative bg-black flex flex-col">
-            <div id="plotArea" class="w-full h-full"></div>
-            
-            <div id="loader" class="absolute inset-0 bg-black/80 flex flex-col items-center justify-center hidden z-50 backdrop-blur-sm">
-                <div class="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-cyan-500 mb-4"></div>
-                <div class="text-cyan-400 font-mono text-sm tracking-widest animate-pulse">COMPUTING FLUX...</div>
+        <main class="flex-1 flex flex-col relative bg-black">
+            <div class="flex-grow relative w-full h-full p-1">
+                <div id="plotArea" class="w-full h-full"></div>
+            </div>
+            <div id="loader" class="absolute inset-0 bg-black/80 flex items-center justify-center hidden z-50">
+                <div class="text-cyan-400 font-mono animate-pulse">COMPUTING...</div>
             </div>
         </main>
     </div>
 
     <script>
-        // --- CONFIGURATION ---
-        // EXACTLY matches your Config.SELECTED_LABELS order
+        // --- DATA ---
+        const REFERENCE_LINES = [
+            { elem: "Fe I", wave: 1520.75 }, { elem: "Fe I", wave: 1539.57 },
+            { elem: "Mg I", wave: 1574.07 }, { elem: "Mg I", wave: 1576.58 },
+            { elem: "Si I", wave: 1588.84 }, { elem: "CO",   wave: 1618.90 },
+            { elem: "Si I", wave: 1638.05 }, { elem: "Al I", wave: 1671.89 },
+            { elem: "Br-11", wave: 1680.65 }, { elem: "C I",  wave: 1689.04 }
+        ];
+
+        let currentX = [];
+        let currentY = [];
+        let baselineY = null; // Stores the "zero point" spectrum
+        let isDiffMode = false;
+
         const LABELS = {
             core: ['TEFF', 'LOGG', 'FE_H', 'VMICRO', 'VMACRO', 'VSINI'],
             cno: ['C_FE', 'N_FE', 'O_FE'],
-            metals: [
-                'MG_FE', 'SI_FE', 'CA_FE', 'TI_FE', 'S_FE', 
-                'AL_FE', 'MN_FE', 'NI_FE', 'CR_FE', 'K_FE', 
-                'NA_FE', 'V_FE', 'CO_FE'
-            ]
+            metals: ['MG_FE', 'SI_FE', 'CA_FE', 'TI_FE', 'S_FE', 'AL_FE', 'MN_FE', 'NI_FE', 'CR_FE', 'K_FE', 'NA_FE', 'V_FE', 'CO_FE']
         };
 
-        // --- UI GENERATION ---
-        function createGroupHeader(title, parentId) {
-            const container = document.getElementById(parentId);
-            const header = document.createElement('h3');
-            header.className = "text-xs font-bold text-gray-500 uppercase tracking-widest mb-3 border-b border-gray-800 pb-1";
-            header.innerText = title;
-            container.appendChild(header);
-            
-            const grid = document.createElement('div');
-            grid.className = "grid grid-cols-2 gap-3"; // 2 Column Layout
-            grid.id = parentId + "-grid";
-            container.appendChild(grid);
-            return grid;
+        // --- UI ---
+        function createGroup(title, id, items) {
+            const container = document.getElementById(id);
+            container.innerHTML = `<h3 class="text-xs font-bold text-gray-500 mb-2 border-b border-gray-700">${title}</h3>`;
+            items.forEach(label => {
+                const div = document.createElement('div');
+                div.className = "mb-2";
+                div.innerHTML = `
+                    <label class="text-[10px] text-gray-400 block">${label}</label>
+                    <input type="number" step="any" id="in_${label}" class="w-full bg-slate-800 border border-slate-700 text-cyan-300 text-xs p-1 rounded focus:border-cyan-500 outline-none">
+                `;
+                container.appendChild(div);
+            });
         }
-
-        function createInput(label, parentGrid) {
-            const div = document.createElement('div');
-            div.className = "flex flex-col group";
-            div.innerHTML = `
-                <label class="text-[10px] text-gray-400 font-mono mb-1 group-hover:text-cyan-400 transition-colors">${label}</label>
-                <input type="number" step="any" id="in_${label}" placeholder="-"
-                    class="bg-[#1e293b] border border-gray-700 text-cyan-300 text-sm rounded px-2 py-1.5 focus:border-cyan-500 focus:outline-none transition-all placeholder-gray-600">
-            `;
-            parentGrid.appendChild(div);
-        }
-
-        // Generate the Sidebar
-        const coreGrid = createGroupHeader("Core Parameters", "group-core");
-        LABELS.core.forEach(l => createInput(l, coreGrid));
-
-        const cnoGrid = createGroupHeader("CNO Elements", "group-cno");
-        LABELS.cno.forEach(l => createInput(l, cnoGrid));
-
-        const metalsGrid = createGroupHeader("Metals", "group-metals");
-        LABELS.metals.forEach(l => createInput(l, metalsGrid));
-
+        createGroup("Core", "group-core", LABELS.core);
+        createGroup("CNO", "group-cno", LABELS.cno);
+        createGroup("Metals", "group-metals", LABELS.metals);
 
         // --- LOGIC ---
         async function synthesize() {
-            const status = document.getElementById('status-indicator');
             const loader = document.getElementById('loader');
-            
-            status.innerText = "PROCESSING";
-            status.className = "text-xs font-mono text-cyan-400 animate-pulse uppercase tracking-widest";
             loader.classList.remove('hidden');
 
-            // 1. Gather all inputs
             const payload = {};
-            [...LABELS.core, ...LABELS.cno, ...LABELS.metals].forEach(label => {
-                const el = document.getElementById(`in_${label}`);
-                const val = el.value;
-                // Send explicit null if empty so Python handles defaults
-                payload[label] = val === "" ? null : parseFloat(val);
+            [...LABELS.core, ...LABELS.cno, ...LABELS.metals].forEach(l => {
+                const val = document.getElementById(`in_${l}`).value;
+                payload[l] = val === "" ? null : parseFloat(val);
             });
 
             try {
-                // 2. Send to Backend
                 const res = await fetch('/predict', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ params: payload })
                 });
 
-                if(!res.ok) throw new Error("API Error");
+                if(!res.ok) throw new Error("Server Error");
                 const data = await res.json();
-
-                // 3. Render
-                renderPlot(data.wavelengths, data.flux);
                 
-                // 4. Fill in the placeholders with the actual values used (optional UX improvement)
-                for (const [key, val] of Object.entries(data.used_values)) {
-                    const input = document.getElementById(`in_${key}`);
-                    if (input && input.value === "") {
-                        input.placeholder = val.toFixed(2); // Show what default was used
-                    }
-                }
+                currentX = data.wavelengths;
+                currentY = data.flux;
 
-                status.innerText = "RENDER COMPLETE";
-                status.className = "text-xs font-mono text-green-500 uppercase tracking-widest";
+                renderPlot();
+            } catch (err) { alert(err.message); } 
+            finally { loader.classList.add('hidden'); }
+        }
 
-            } catch (err) {
-                console.error(err);
-                status.innerText = "SYSTEM ERROR";
-                status.className = "text-xs font-mono text-red-500 uppercase tracking-widest";
-                alert("Failed to generate spectrum. Check console for details.");
-            } finally {
-                loader.classList.add('hidden');
+        function toggleDiff() {
+            const btn = document.getElementById('diffBtn');
+            if (!isDiffMode) {
+                // Turn ON: Set baseline
+                if (currentY.length === 0) return alert("Generate a spectrum first!");
+                baselineY = [...currentY]; // Deep copy
+                isDiffMode = true;
+                btn.innerText = "EXIT DIFF MODE";
+                btn.className = "text-xs font-mono border border-red-500 bg-red-900/20 text-red-400 px-3 py-1 rounded transition-all";
+                renderPlot();
+            } else {
+                // Turn OFF
+                isDiffMode = false;
+                baselineY = null;
+                btn.innerText = "SET BASELINE (DIFF MODE)";
+                btn.className = "text-xs font-mono border border-gray-600 px-3 py-1 rounded text-gray-400 hover:text-white hover:border-white transition-all";
+                renderPlot();
             }
         }
 
-        function renderPlot(xData, yData) {
-            const trace = {
-                x: xData,
-                y: yData,
+        function replot() { renderPlot(); }
+
+        function renderPlot() {
+            if (currentX.length === 0) return;
+            const showLines = document.getElementById('showLines').checked;
+            
+            // Determine what to plot (Raw vs Diff)
+            let plotY = [];
+            let plotColor = '#22d3ee'; // Cyan
+            
+            if (isDiffMode && baselineY) {
+                // Calculate Difference: (Current - Baseline)
+                plotY = currentY.map((y, i) => y - baselineY[i]);
+                plotColor = '#f472b6'; // Pink for Diff
+            } else {
+                plotY = currentY;
+            }
+
+            const traces = [{
+                x: currentX,
+                y: plotY,
                 mode: 'lines',
-                line: {
-                    color: '#22d3ee', // Cyan-400
-                    width: 1.5,
-                    shape: 'linear'   // Ensure sharp transitions for spectra
-                },
-                name: 'Flux',
-                hoverinfo: 'x+y'
-            };
+                line: { color: plotColor, width: 1.5 },
+                name: isDiffMode ? 'Difference' : 'Flux'
+            }];
+
+            let shapes = [];
+            let annotations = [];
+
+            if (showLines) {
+                REFERENCE_LINES.forEach(line => {
+                    if (line.wave >= 1514 && line.wave <= 1694) {
+                        shapes.push({
+                            type: 'line',
+                            x0: line.wave, x1: line.wave,
+                            y0: isDiffMode ? -0.1 : 0, 
+                            y1: isDiffMode ? 0.1 : 1.1,
+                            line: { color: 'rgba(255, 255, 255, 0.2)', width: 1, dash: 'dot' }
+                        });
+                        annotations.push({
+                            x: line.wave, y: isDiffMode ? 0.12 : 1.12,
+                            text: line.elem, showarrow: false,
+                            font: { color: 'rgba(255, 255, 255, 0.5)', size: 10 }
+                        });
+                    }
+                });
+            }
 
             const layout = {
                 paper_bgcolor: '#000000',
                 plot_bgcolor: '#000000',
-                margin: { t: 40, r: 20, l: 60, b: 40 },
-                
-                // AXIS AUTO-SCALING: 
-                // We do NOT set 'range' here. Plotly will calculate it based on the data.
-                xaxis: {
-                    title: 'Wavelength (Å)',
-                    titlefont: {color: '#94a3b8', size: 12},
-                    tickfont: {color: '#64748b', size: 10},
+                margin: { t: 40, r: 20, l: 50, b: 40 },
+                xaxis: { title: 'Wavelength (nm)', gridcolor: '#1e293b', range: [1514, 1694] },
+                yaxis: { 
+                    title: isDiffMode ? 'Delta Flux (Current - Baseline)' : 'Normalized Flux', 
                     gridcolor: '#1e293b',
-                    zerolinecolor: '#334155',
-                    showspikes: true,
-                    spikethickness: 1,
-                    spikecolor: '#475569',
-                    spikemode: 'across'
+                    // Auto-range for diff mode, fixed for normal
+                    autorange: isDiffMode ? true : false,
+                    range: isDiffMode ? null : [0, 1.25]
                 },
-                yaxis: {
-                    title: 'Normalized Flux',
-                    titlefont: {color: '#94a3b8', size: 12},
-                    tickfont: {color: '#64748b', size: 10},
-                    gridcolor: '#1e293b',
-                    zerolinecolor: '#334155',
-                    // Optional: Spectra usually normalized to 1.0, so we can center view
-                    autorange: true 
-                },
-                hovermode: 'closest',
-                showlegend: false
+                font: { color: '#94a3b8' },
+                shapes: shapes,
+                annotations: annotations
             };
-
-            const config = { 
-                responsive: true, 
-                displayModeBar: true,
-                displaylogo: false,
-                modeBarButtonsToRemove: ['lasso2d', 'select2d']
-            };
-
-            Plotly.newPlot('plotArea', [trace], layout, config);
+            
+            Plotly.newPlot('plotArea', traces, layout, { responsive: true });
         }
-
-        // Initialize empty grid on load
-        renderPlot([], []);
+        
+        // Init empty
+        Plotly.newPlot('plotArea', [], { paper_bgcolor:'#000', plot_bgcolor:'#000' });
     </script>
 </body>
 </html>

@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StellarNet Validation</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <style>
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+    </style>
+</head>
+<body class="bg-[#0b1121] text-gray-200 font-sans h-screen flex flex-col overflow-hidden">
+
+    <header class="h-14 border-b border-gray-800 flex justify-between items-center px-6 bg-[#0f172a] shrink-0">
+        <h1 class="text-lg font-bold tracking-widest text-gray-100">STAR<span class="text-cyan-400">SEER</span></h1>
+        
+        <div class="flex items-center gap-2">
+            <input type="checkbox" id="showLines" class="w-4 h-4 accent-cyan-500 cursor-pointer" checked onchange="replot()">
+            <label for="showLines" class="text-xs font-mono text-cyan-400 cursor-pointer select-none">OVERLAY LINES</label>
+        </div>
+    </header>
+
+    <div class="flex flex-1 overflow-hidden">
+        <aside class="w-72 bg-[#0f172a]/90 border-r border-gray-800 flex flex-col overflow-y-auto z-10">
+            <div class="p-4 space-y-4">
+                <form id="controlPanel" class="space-y-6">
+                    <div id="group-core"></div>
+                    <div id="group-cno"></div>
+                    <div id="group-metals"></div>
+                </form>
+            </div>
+            <div class="sticky bottom-0 p-4 bg-[#0f172a] border-t border-gray-800">
+                <button onclick="synthesize()" class="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-bold py-3 rounded transition-all shadow-[0_0_15px_rgba(8,145,178,0.4)]">
+                    SYNTHESIZE
+                </button>
+            </div>
+        </aside>
+
+        <main class="flex-1 flex flex-col relative bg-black">
+            <div class="flex-grow relative w-full h-full p-1">
+                <div id="plotArea" class="w-full h-full"></div>
+            </div>
+            
+            <div id="loader" class="absolute inset-0 bg-black/80 flex items-center justify-center hidden z-50">
+                <div class="text-cyan-400 font-mono animate-pulse">COMPUTING PHYSICS...</div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // --- 1. APOGEE SPECTRAL LINES (H-Band) ---
+        // These are the "ground truth" wavelengths for important elements
+        const REFERENCE_LINES = [
+            { elem: "Fe I", wave: 1520.75 },
+            { elem: "Fe I", wave: 1539.57 },
+            { elem: "Mg I", wave: 1574.07 }, // Mg Triplet 1
+            { elem: "Mg I", wave: 1576.58 }, // Mg Triplet 2 (Strong)
+            { elem: "Si I", wave: 1588.84 },
+            { elem: "CO",   wave: 1618.90 }, // CO bandhead approx
+            { elem: "Si I", wave: 1638.05 },
+            { elem: "Al I", wave: 1671.89 }, // Strong Al line
+            { elem: "Al I", wave: 1676.34 }, 
+            { elem: "Br-11", wave: 1680.65 }, // Hydrogen (Hot stars)
+            { elem: "C I",  wave: 1689.04 }
+        ];
+
+        // Global storage for current plot data (so we can toggle lines without re-fetching)
+        let currentX = [];
+        let currentY = [];
+
+        // --- CONFIG ---
+        const LABELS = {
+            core: ['TEFF', 'LOGG', 'FE_H', 'VMICRO', 'VMACRO', 'VSINI'],
+            cno: ['C_FE', 'N_FE', 'O_FE'],
+            metals: ['MG_FE', 'SI_FE', 'CA_FE', 'TI_FE', 'S_FE', 'AL_FE', 'MN_FE', 'NI_FE', 'CR_FE', 'K_FE', 'NA_FE', 'V_FE', 'CO_FE']
+        };
+
+        // --- UI BUILDER ---
+        function createGroup(title, id, items) {
+            const container = document.getElementById(id);
+            container.innerHTML = `<h3 class="text-xs font-bold text-gray-500 mb-2 border-b border-gray-700">${title}</h3>`;
+            items.forEach(label => {
+                const div = document.createElement('div');
+                div.className = "mb-2";
+                div.innerHTML = `
+                    <label class="text-[10px] text-gray-400 block">${label}</label>
+                    <input type="number" step="any" id="in_${label}" class="w-full bg-slate-800 border border-slate-700 text-cyan-300 text-xs p-1 rounded focus:border-cyan-500 outline-none">
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        createGroup("Core", "group-core", LABELS.core);
+        createGroup("CNO", "group-cno", LABELS.cno);
+        createGroup("Metals", "group-metals", LABELS.metals);
+
+        // --- MAIN LOGIC ---
+        async function synthesize() {
+            const loader = document.getElementById('loader');
+            loader.classList.remove('hidden');
+
+            const payload = {};
+            [...LABELS.core, ...LABELS.cno, ...LABELS.metals].forEach(l => {
+                const val = document.getElementById(`in_${l}`).value;
+                payload[l] = val === "" ? null : parseFloat(val);
+            });
+
+            try {
+                const res = await fetch('/predict', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ params: payload })
+                });
+
+                if(!res.ok) throw new Error("Server Error");
+                const data = await res.json();
+                
+                // Store data globally for toggling
+                currentX = data.wavelengths;
+                currentY = data.flux;
+
+                renderPlot(currentX, currentY);
+
+            } catch (err) {
+                alert("Error: " + err.message);
+            } finally {
+                loader.classList.add('hidden');
+            }
+        }
+
+        // Wrapper for toggle switch
+        function replot() {
+            if(currentX.length > 0) renderPlot(currentX, currentY);
+        }
+
+        function renderPlot(xData, yData) {
+            const showLines = document.getElementById('showLines').checked;
+            
+            // 1. Base Trace (The Model Output)
+            const traces = [{
+                x: xData,
+                y: yData,
+                mode: 'lines',
+                line: { color: '#22d3ee', width: 1.5 },
+                name: 'Flux'
+            }];
+
+            // 2. Generate Shapes (Vertical Lines) & Annotations (Text)
+            let shapes = [];
+            let annotations = [];
+
+            if (showLines) {
+                REFERENCE_LINES.forEach(line => {
+                    // Only draw if line is within current view range
+                    if (line.wave >= 1514 && line.wave <= 1694) {
+                        shapes.push({
+                            type: 'line',
+                            x0: line.wave,
+                            x1: line.wave,
+                            y0: 0,
+                            y1: 1.1, // Go slightly above typical flux
+                            line: {
+                                color: 'rgba(255, 255, 255, 0.2)', // Faint white
+                                width: 1,
+                                dash: 'dot'
+                            }
+                        });
+
+                        annotations.push({
+                            x: line.wave,
+                            y: 1.12,
+                            xref: 'x',
+                            yref: 'y',
+                            text: line.elem,
+                            showarrow: false,
+                            font: {
+                                color: 'rgba(255, 255, 255, 0.5)',
+                                size: 10
+                            }
+                        });
+                    }
+                });
+            }
+
+            const layout = {
+                paper_bgcolor: '#000000',
+                plot_bgcolor: '#000000',
+                margin: { t: 40, r: 20, l: 50, b: 40 },
+                xaxis: { 
+                    title: 'Wavelength (Å)', 
+                    gridcolor: '#1e293b',
+                    // Using the APOGEE range based on your config
+                    range: [1514, 1694] 
+                },
+                yaxis: { 
+                    title: 'Normalized Flux', 
+                    gridcolor: '#1e293b',
+                    range: [0, 1.25] // Slightly higher to fit annotations
+                },
+                font: { color: '#94a3b8' },
+                shapes: shapes,           // <--- Inject lines
+                annotations: annotations  // <--- Inject labels
+            };
+            
+            Plotly.newPlot('plotArea', traces, layout, { responsive: true });
+        }
+
+        // Init blank
+        renderPlot([], []);
+    </script>
+</body>
+</html>

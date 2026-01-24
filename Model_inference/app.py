@@ -8,7 +8,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from CONFIGS import Config
 from tensorflow.keras.saving import register_keras_serializable
 from tensorflow.keras import layers, models, Input, callbacks, regularizers
-
+import matplotlib
+matplotlib.use('Agg') 
+import matplotlib.pyplot as plt
+STATIC_DIR = "C:/Users/Aneesh Shastri/OneDrive/Documents/GitHub/STAR_SEER/Model_inference"
 @register_keras_serializable()
 def scaled_sigmoid(x):
     return 1.3 * tf.nn.sigmoid(x)-0.15
@@ -129,7 +132,8 @@ class StellarParams(BaseModel):
 
 def generate_wavelengths():
     """Generates the x-axis for the spectrum."""
-    return np.logspace(np.log10(Config.WAVELENGTH_START), np.log10(Config.WAVELENGTH_END), Config.OUTPUT_LENGTH)
+    return np.logspace(np.log10(Config.WAVELENGTH_START), np.log10(Config.WAVELENGTH_END),
+     Config.OUTPUT_LENGTH)
 
 @app.post("/predict")
 async def predict_spectrum(user_input: StellarParams):
@@ -213,16 +217,45 @@ async def predict_spectrum(user_input: StellarParams):
     if model:
         # Predict returns (1, Config.OUTPUT_LENGTH)
         prediction = model.predict(model_input, verbose=0)
-        flux_output = prediction[0].tolist()
+        print(prediction.shape)
+        flux_output = prediction.reshape(-1).tolist()
     else:
         # Mock output for testing UI without model
         x = np.linspace(0, 50, Config.OUTPUT_LENGTH)
         flux_output = (np.sin(x) + raw_array[0]/5000).tolist() # Dummy math
+# ... (After your model prediction logic) ...
 
+    # --- DEBUG: SAVE PLOT TO FILE ---
+    try:
+        print("📸 Generating debug plot...")
+        plt.figure(figsize=(12, 6))
+        
+        # Get x and y data
+        x_data = generate_wavelengths()
+        y_data = flux_output
+        
+        plt.plot(x_data, y_data, color='blue', linewidth=1)
+        plt.title(f"Backend Debug Plot (Max Flux: {max(y_data):.2f})")
+        plt.xlabel("Wavelength (Å)")
+        plt.ylabel("Normalized Flux")
+        plt.grid(True, alpha=0.3)
+        
+        # Force a reasonable view if data is crazy, or let it autoscaling to see the "400,000" error
+        # plt.ylim(0, 1.2)  <-- Uncomment this to see if the line disappears (meaning it's way off scale)
+        
+        save_path = STATIC_DIR+  "/debug_spectrum.png"
+        plt.savefig(save_path)
+        plt.close() # Important: Close memory to prevent server crash
+        print(f"✅ Plot saved to: {save_path}")
+        
+    except Exception as e:
+        print(f"❌ Could not create plot: {e}")
+
+    # ... (Now return the JSON as usual) ...
     return {
         "wavelengths": generate_wavelengths().tolist(),
         "flux": flux_output,
-        "used_values": dict(zip(Config.SELECTED_LABELS, input_vector)) # Send back what values were actually used
+        "used_values": dict(zip(Config.SELECTED_LABELS, input_vector))
     }
 
 # Mount static files (frontend)
