@@ -80,7 +80,7 @@ def spectral_focus_loss(y_true, y_pred):
     
     return tf.reduce_mean(loss)
 
-print("⏳ Loading Model & Stats...")
+print("Loading Model & Stats...")
 
 # Load Stats
 try:
@@ -93,14 +93,14 @@ try:
     # Maps 'TEFF' -> 4500.0, 'LOGG' -> 2.5, etc.
     DEFAULT_MEANS = {label: float(MEANS_ARRAY[i]) for i, label in enumerate(Config.SELECTED_LABELS)}
     
-    print(f"✅ Stats loaded. Found {len(MEANS_ARRAY)} features.")
+    print(f"Stats loaded. Found {len(MEANS_ARRAY)} features.")
     
     # Sanity Check
     if len(MEANS_ARRAY) != len(Config.SELECTED_LABELS):
-        print(f"⚠️ WARNING: Stats file has {len(MEANS_ARRAY)} values, but Config.SELECTED_LABELS has {len(Config.SELECTED_LABELS)}.")
+        print(f"WARNING: Stats file has {len(MEANS_ARRAY)} values, but Config.SELECTED_LABELS has {len(Config.SELECTED_LABELS)}.")
 
 except Exception as e:
-    print(f"❌ Error loading stats: {e}")
+    print(f"Error loading stats: {e}")
     # Fallback for testing ONLY (prevents crash if file is missing)
     MEANS_ARRAY = np.zeros(len(Config.SELECTED_LABELS), dtype=np.float32)
     STDS_ARRAY = np.ones(len(Config.SELECTED_LABELS), dtype=np.float32)
@@ -109,13 +109,14 @@ except Exception as e:
 
 # Load Model
 try:
-    model = tf.keras.models.load_model("C:/Users/Aneesh Shastri/OneDrive/Documents/GitHub/STAR_SEER/Model_inference/model/final_model.keras")
-    print("✅ Model loaded successfully.")
+    model = tf.keras.models.load_model("C:/Users/Aneesh Shastri/OneDrive/Documents/GitHub/STAR_SEER/Model_inference/model/final_model_disentangle.keras")
+    print("Model loaded successfully.")
 except Exception as e:
-    print(f"❌ Model load failed: {e}")
+    print(f"Model load failed: {e}")
     model = None
 
 # --- 3. FastAPI Setup ---
+
 
 app = FastAPI()
 
@@ -227,7 +228,7 @@ async def predict_spectrum(user_input: StellarParams):
 
     # --- DEBUG: SAVE PLOT TO FILE ---
     try:
-        print("📸 Generating debug plot...")
+        print("Generating debug plot...")
         plt.figure(figsize=(12, 6))
         
         # Get x and y data
@@ -246,10 +247,10 @@ async def predict_spectrum(user_input: StellarParams):
         save_path = STATIC_DIR+  "/debug_spectrum.png"
         plt.savefig(save_path)
         plt.close() # Important: Close memory to prevent server crash
-        print(f"✅ Plot saved to: {save_path}")
+        print(f"Plot saved to: {save_path}")
         
     except Exception as e:
-        print(f"❌ Could not create plot: {e}")
+        print(f"Could not create plot: {e}")
 
     # ... (Now return the JSON as usual) ...
     return {
